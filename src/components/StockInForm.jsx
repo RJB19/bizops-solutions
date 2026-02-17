@@ -1,49 +1,79 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../services/supabase'
+import { useState, useEffect } from 'react';
+import { supabase } from '../services/supabase';
+import { useAuth } from '../utils/AuthContext';
+import { useStockInForm } from '../utils/StockInFormContext'; // Import useStockInForm
+import { getUniqueCategories } from '../services/products'; // Import getUniqueCategories
 
+export default function StockInForm({ onSuccess }) { // Removed onClose prop
+  const { user } = useAuth();
+  const { stockInFormData, updateStockInFormField, resetStockInForm, closeStockInForm } = useStockInForm();
+  const {
+    productId,
+    quantity,
+    costPrice,
+    searchTerm,
+    displaySearchTerm,
+    showDropdown,
+    selectedProductSellingPrice,
+    costPriceError,
+    showPrepopulatedCostNote,
+  } = stockInFormData;
 
-export default function StockInForm({ onSuccess, onClose }) {
-  const [products, setProducts] = useState([])
-  const [productId, setProductId] = useState('')
-  const [quantity, setQuantity] = useState('')
-  const [costPrice, setCostPrice] = useState('')
-  const [searchTerm, setSearchTerm] = useState(''); // State for filtering
-  const [displaySearchTerm, setDisplaySearchTerm] = useState(''); // State for input display
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedProductSellingPrice, setSelectedProductSellingPrice] = useState(null); // New state
-  const [costPriceError, setCostPriceError] = useState(''); // New state
-  const [showPrepopulatedCostNote, setShowPrepopulatedCostNote] = useState(false); // New state
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false); // New state
 
+  // New states for category filtering
+  const [selectedCategory, setSelectedCategory] = useState(''); // Empty string means 'All Categories'
+  const [uniqueCategories, setUniqueCategories] = useState([]);
+
   useEffect(() => {
-    fetchProducts()
-  }, [])
+    fetchProducts();
+  }, []);
+
+  // Fetch unique categories on mount
+  useEffect(() => {
+    async function fetchUniqueCategories() {
+      try {
+        const categories = await getUniqueCategories();
+        setUniqueCategories(categories);
+      } catch (error) {
+        console.error('Error fetching unique categories for filter:', error);
+      }
+    }
+    fetchUniqueCategories();
+  }, []);
 
   async function fetchProducts() {
     const { data } = await supabase
       .from('products')
-      .select('id, name, sku, selling_price, archived_at')
-      .is('archived_at', null)
+      .select('id, name, sku, selling_price, archived_at, category') // Include category
+      .is('archived_at', null);
     const sortedProducts = (data || []).sort((a, b) => a.name.localeCompare(b.name));
     setProducts(sortedProducts);
   }
 
   const filteredProducts = products
-    .filter(p =>
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+    .filter(
+      (p) =>
+        (selectedCategory === '' || (p.category && p.category.trim().toLowerCase() === selectedCategory)) && // Category filter
+        (p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.sku || '').toLowerCase().includes(searchTerm.toLowerCase()))
     )
     .sort((a, b) => a.name.localeCompare(b.name)); // Explicit sort after filtering
 
-
   async function handleSubmit(e) {
-    e.preventDefault()
+    e.preventDefault();
 
     if (!productId) {
       alert('Please select a product from the list.');
       return;
     }
-    if (costPriceError) { // Prevent submission if there's an error
+
+    if (!window.confirm('Are you sure you want to add this stock?')) {
+      return; // If user cancels, stop the function
+    }
+    if (costPriceError) {
+      // Prevent submission if there's an error
       if (!confirm(costPriceError + ' Do you want to proceed anyway?')) {
         return;
       }
@@ -52,36 +82,46 @@ export default function StockInForm({ onSuccess, onClose }) {
     setLoading(true); // Start loading
 
     try {
-      const { error } = await supabase.from('stock_batches').insert({
+      const { data: newBatch, error: batchError } = await supabase.from('stock_batches').insert({
         product_id: productId,
         quantity: Number(quantity),
         remaining_quantity: Number(quantity),
         cost_price: Number(costPrice),
-        received_at: new Date()
-      })
+        received_at: new Date(),
+        company_id: user.company_id,
+      }).select().single(); // Select the inserted row to get its ID
 
-      if (error) {
-        alert(error.message)
-        return
+      if (batchError) {
+        alert(batchError.message);
+        setLoading(false);
+        return;
       }
 
-      alert('Stock added successfully')
+      // Log stock movement
+      const { error: movementError } = await supabase.from('stock_movements').insert({
+        product_id: productId, // Corrected to productId
+        batch_id: newBatch.id, // Use the ID of the newly created batch
+        quantity: Number(quantity),
+        movement_type: 'IN',
+        reason: 'Stock In', // Add the reason
+        company_id: user.company_id,
+        reference_id: null, // No specific reference for initial stock-in
+      });
 
-      // 🔥 THIS IS THE IMPORTANT PART
+      if (movementError) {
+        alert('Stock added, but failed to log movement. Please check logs.');
+        // For now, we'll just alert and continue.
+      }
+
+      alert('Stock added successfully');
+
       if (typeof onSuccess === 'function') {
-        onSuccess(productId)
+        onSuccess(productId);
       }
+      
+      resetStockInForm(); // Reset form using context
+      closeStockInForm(); // Close form using context
 
-
-      setProductId('')
-      setQuantity('')
-      setCostPrice('')
-      setSearchTerm('');
-      setDisplaySearchTerm(''); // Clear display search term on submit
-      setShowDropdown(false);
-      setSelectedProductSellingPrice(null); // Clear selling price
-      setCostPriceError(''); // Clear any error
-      setShowPrepopulatedCostNote(false); // Clear the note on submit
     } catch (error) {
       console.error('Submission error:', error);
       alert('An unexpected error occurred during submission.');
@@ -92,17 +132,17 @@ export default function StockInForm({ onSuccess, onClose }) {
 
   const validateCostPrice = (price, sellingPrice) => {
     if (sellingPrice && Number(price) > sellingPrice) {
-      setCostPriceError('Cost price is greater than selling price.');
+      updateStockInFormField('costPriceError', 'Cost price is greater than selling price.');
     } else {
-      setCostPriceError('');
+      updateStockInFormField('costPriceError', '');
     }
   };
 
   const handleSelectProduct = async (product) => {
-    setProductId(product.id);
-    setDisplaySearchTerm(`${product.name} (${product.sku})`); // Update display term
-    setSearchTerm(''); // Clear filter search term to show all on re-open
-    setShowDropdown(false);
+    updateStockInFormField('productId', product.id);
+    updateStockInFormField('displaySearchTerm', `${product.name} (${product.sku})`);
+    updateStockInFormField('searchTerm', '');
+    updateStockInFormField('showDropdown', false);
 
     let latestSellingPrice = null;
     let latestCostPrice = '';
@@ -112,35 +152,37 @@ export default function StockInForm({ onSuccess, onClose }) {
       .from('products')
       .select('selling_price')
       .eq('id', product.id)
+      .eq('company_id', user.company_id) // Add company_id filter
       .single();
 
     if (sellingPriceError) {
       console.error('Error fetching latest selling price:', sellingPriceError.message);
-      setCostPriceError('Could not fetch latest selling price. Please try again.');
+      updateStockInFormField('costPriceError', 'Could not fetch latest selling price. Please try again.');
     } else if (sellingPriceData) {
       latestSellingPrice = sellingPriceData.selling_price;
-      setSelectedProductSellingPrice(latestSellingPrice);
+      updateStockInFormField('selectedProductSellingPrice', latestSellingPrice);
     } else {
-      setCostPriceError('Selling price not found for this product.');
+      updateStockInFormField('costPriceError', 'Selling price not found for this product.');
     }
 
     // --- Fetch latest cost price ---
-    const { data: costPriceData, error: costPriceError } = await supabase
+    const { data: costPriceData, error: costPriceErrorFetch } = await supabase
       .from('stock_batches')
       .select('cost_price')
       .eq('product_id', product.id)
+      .eq('company_id', user.company_id) // Add company_id filter
       .order('received_at', { ascending: false })
       .limit(1)
       .single();
 
-    if (costPriceError && costPriceError.code !== 'PGRST116') { // Ignore "exact one row was not found" errors
-      console.error('Error fetching latest cost price:', costPriceError.message);
+    if (costPriceErrorFetch && costPriceErrorFetch.code !== 'PGRST116') { // Ignore "exact one row was not found" errors
+      console.error('Error fetching latest cost price:', costPriceErrorFetch.message);
     } else if (costPriceData) {
       latestCostPrice = costPriceData.cost_price;
     }
 
-    setCostPrice(latestCostPrice);
-    setShowPrepopulatedCostNote(latestCostPrice !== ''); // Show note if cost price is found
+    updateStockInFormField('costPrice', latestCostPrice);
+    updateStockInFormField('showPrepopulatedCostNote', latestCostPrice !== ''); // Show note if cost price is found
 
     // --- Validate with the new values ---
     validateCostPrice(latestCostPrice, latestSellingPrice);
@@ -148,37 +190,63 @@ export default function StockInForm({ onSuccess, onClose }) {
   
   const handleToggleDropdown = () => {
     if (!showDropdown && productId) { // If dropdown is closed and a product is selected
-      setSearchTerm(''); // Clear filter to show all products
-      setDisplaySearchTerm(''); // Clear display to show placeholder and all options
-      setProductId(''); // Also clear selected product so user can re-select
+      updateStockInFormField('searchTerm', ''); // Clear filter to show all products
+      updateStockInFormField('displaySearchTerm', ''); // Clear display to show placeholder and all options
+      updateStockInFormField('productId', ''); // Also clear selected product so user can re-select
     } else if (!showDropdown && displaySearchTerm) { // If dropdown is closed, user typed but not selected
-      setSearchTerm(displaySearchTerm); // Use what's in display for filtering
+      updateStockInFormField('searchTerm', displaySearchTerm); // Use what's in display for filtering
     }
-    setShowDropdown(prev => !prev);
+    updateStockInFormField('showDropdown', !showDropdown);
   }
 
   const handleInputChange = (e) => {
     const value = e.target.value;
-    setDisplaySearchTerm(value);
-    setSearchTerm(value); // Use value for filtering
-    setProductId(''); // Clear selected product when typing
-    setShowDropdown(true); // Always show dropdown when typing
-    setSelectedProductSellingPrice(null); // Clear selling price when product search changes
-    setCostPriceError(''); // Clear any cost price error
-    setShowPrepopulatedCostNote(false); // Clear the note when product selection changes
+    updateStockInFormField('displaySearchTerm', value);
+    updateStockInFormField('searchTerm', value); // Use value for filtering
+    updateStockInFormField('productId', ''); // Clear selected product when typing
+    updateStockInFormField('showDropdown', true); // Always show dropdown when typing
+    updateStockInFormField('selectedProductSellingPrice', null); // Clear selling price when product search changes
+    updateStockInFormField('costPriceError', ''); // Clear any cost price error
+    updateStockInFormField('showPrepopulatedCostNote', false); // Clear the note when product selection changes
   };
 
   const handleCostPriceChange = (e) => {
     const value = e.target.value;
-    setCostPrice(value);
+    updateStockInFormField('costPrice', value);
     validateCostPrice(value, selectedProductSellingPrice);
-    setShowPrepopulatedCostNote(false); // Hide note when user starts typing
+    updateStockInFormField('showPrepopulatedCostNote', false); // Hide note when user starts typing
+  };
+
+  const handleCategoryChange = (e) => {
+    const newCategory = e.target.value;
+    setSelectedCategory(newCategory);
+    // Reset product selection when category changes
+    updateStockInFormField('productId', '');
+    updateStockInFormField('displaySearchTerm', '');
+    updateStockInFormField('searchTerm', '');
+    updateStockInFormField('selectedProductSellingPrice', null);
+    updateStockInFormField('costPrice', '');
+    updateStockInFormField('costPriceError', '');
+    updateStockInFormField('showPrepopulatedCostNote', false);
+    updateStockInFormField('showDropdown', false);
   };
 
   return (
     
     <form onSubmit={handleSubmit} className="space-y-3">
       <h2 className="text-lg font-semibold">Add Stock</h2>
+
+      {/* Category Filter Dropdown */}
+      <select
+        className="w-full border p-2 rounded"
+        value={selectedCategory}
+        onChange={handleCategoryChange} // Use the new handler
+      >
+        <option value="">All Categories</option>
+        {uniqueCategories.map(category => (
+          <option key={category} value={category}>{category}</option>
+        ))}
+      </select>
 
       <div className="relative">
         <input
@@ -189,13 +257,13 @@ export default function StockInForm({ onSuccess, onClose }) {
           onChange={handleInputChange}
           onFocus={() => {
             if (productId) { // If a product is already selected, clear searchTerm to show all options initially
-              setSearchTerm('');
+              updateStockInFormField('searchTerm', '');
             } else if (displaySearchTerm) { // If user typed but not selected, set searchTerm to displaySearchTerm
-              setSearchTerm(displaySearchTerm);
+              updateStockInFormField('searchTerm', displaySearchTerm);
             }
-            setShowDropdown(true);
+            updateStockInFormField('showDropdown', true);
           }}
-          onBlur={() => setTimeout(() => setShowDropdown(false), 100)} // Delay to allow click on items
+          onBlur={() => setTimeout(() => updateStockInFormField('showDropdown', false), 100)} // Delay to allow click on items
           required
         />
         <button
@@ -206,7 +274,7 @@ export default function StockInForm({ onSuccess, onClose }) {
           {showDropdown ? (
             // Up arrow
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 f0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
+              <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
             </svg>
           ) : (
             // Down arrow
@@ -249,7 +317,7 @@ export default function StockInForm({ onSuccess, onClose }) {
         placeholder="Quantity"
         className="w-full border p-2 rounded"
         value={quantity}
-        onChange={e => setQuantity(e.target.value)}
+        onChange={e => updateStockInFormField('quantity', e.target.value)}
         required
       />
 
@@ -268,7 +336,7 @@ export default function StockInForm({ onSuccess, onClose }) {
       {costPriceError && <p className="text-sm text-red-500">{costPriceError}</p>}
 
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="px-4 py-2 border rounded">
+        <button type="button" onClick={closeStockInForm} className="px-4 py-2 border rounded">
           Close
         </button>
         <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded" disabled={loading}>

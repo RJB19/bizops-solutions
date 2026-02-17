@@ -70,22 +70,25 @@ export default function LowStockItems() {
   }
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow">
-      <h3 className="text-lg font-bold mb-2">Low Stock Items</h3>
+    <div className="bg-white p-3 rounded-lg shadow">
+      {/* Alert-like Header */}
+      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-2 mb-3 rounded-md flex items-center justify-between">
+        <h3 className="font-bold text-base">Low Stock</h3>
+        {items.length > 0 && <span className="text-xs font-semibold">{items.length} items</span>}
+      </div>
+
       {items.length === 0 ? (
-        <p className="text-gray-500">No items are low on stock.</p>
+        <p className="text-gray-500 text-sm">No items are low on stock.</p>
       ) : (
         <ul className="divide-y divide-gray-200">
           {items.map(item => (
-            <li key={item.id} className="py-2 flex justify-between items-center">
+            <li key={item.id} className="py-1.5 px-1 flex items-center justify-between">
               <div>
-                <span className="font-semibold">{item.name}</span>
-                <span className="text-sm text-gray-500 ml-2">({item.sku})</span>
+                <h4 className="font-semibold text-gray-800 text-sm">{item.name} <span className="text-xs text-gray-600">({item.sku})</span></h4>
+                <p className="text-xs text-red-700 mt-0.5">Threshold: {item.low_stock_threshold}</p>
               </div>
               <div className="text-right">
-                <span className="font-bold text-red-600 mr-2">
-                  {item.total_stock} left
-                </span>
+                <p className="font-bold text-red-600 text-sm">{item.total_stock} left</p>
                 <LowStockBadge stock={item.total_stock} threshold={item.low_stock_threshold} />
               </div>
             </li>

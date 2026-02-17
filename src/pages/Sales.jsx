@@ -3,11 +3,13 @@ import { supabase } from '../services/supabase'
 import SaleForm from '../components/SaleForm'
 import { formatPrice } from '../utils/formatPrice'
 import { useAuth } from '../utils/AuthContext'; // Import useAuth
+import { useSalesCart } from '../utils/SalesCartContext'; // Import useSalesCart
 import ReceiptModal from '../components/ReceiptModal'; // Import the new ReceiptModal component
+import { getNetSaleItems } from '../services/products'; // Import getNetSaleItems
 
 export default function Sales() {
   const { user } = useAuth(); // Get user from AuthContext
-  const [open, setOpen] = useState(false); // State for SaleForm modal
+  const { isSaleFormOpen, toggleSaleForm, closeSaleForm, openSaleForm, cartItems } = useSalesCart(); // Use sales cart context
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false); // State for Receipt Modal
   const [selectedSale, setSelectedSale] = useState(null); // To hold the sale data for the receipt
 
@@ -32,17 +34,42 @@ export default function Sales() {
   async function fetchSales() {
     setLoading(true)
 
-    const { data, error } = await supabase
-      .from('sales')
-      .select('id,display_id,created_at,total_amount,cancelled_at,sale_items(id,product_id,quantity,selling_price,products(name,sku))')
-      .order('created_at', { ascending: false })
+    // Fetch net sale items
+    const netSaleItems = await getNetSaleItems();
 
-    if (error) alert(error.message)
-    else {
-      setSales(data)
-      setPage(1) // Reset to first page when new data is fetched
-    }
+    // Transform flat netSaleItems into grouped sales structure for this component
+    const groupedSalesMap = new Map();
 
+    // Iterate over netSaleItems to group them by sale_id
+    netSaleItems.forEach(item => {
+      if (!groupedSalesMap.has(item.sale_id)) {
+        groupedSalesMap.set(item.sale_id, {
+          id: item.sale_id,
+          // Placeholder for display_id - this would ideally come from the sales table directly
+          // For now, let's use a truncated version of sale_id or a unique counter
+          display_id: item.sale_id.substring(0, 8), 
+          created_at: item.date,
+          total_amount: 0, // Will sum up later
+          cancelled_at: null, // getNetSaleItems already filters out cancelled sales
+          sale_items: [],
+        });
+      }
+      const sale = groupedSalesMap.get(item.sale_id);
+      sale.sale_items.push({
+        id: item.sale_item_id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        selling_price: item.selling_price,
+        products: { name: item.product_name, sku: item.sku }
+      });
+      sale.total_amount += item.amount; // Sum the net amount for the sale
+    });
+    
+    // Convert map to array and sort by created_at
+    const finalSales = Array.from(groupedSalesMap.values()).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    setSales(finalSales);
+    setPage(1) // Reset to first page when new data is fetched
     setLoading(false)
   }
 
@@ -51,39 +78,57 @@ export default function Sales() {
 
     if (!confirm('Cancel this sale and restore stock?')) return
 
-    const { data: items, error } = await supabase
+    // We need original sale items from the database, not net sale items.
+    // Fetch raw sale items for this specific sale.
+    const { data: items, error: saleItemsError } = await supabase
       .from('sale_items')
-      .select('*')
-      .eq('sale_id', sale.id)
+      .select('id, product_id, quantity, selling_price, cost_price')
+      .eq('sale_id', sale.id);
 
-    if (error) {
-      alert(error.message)
-      return
+    if (saleItemsError) {
+      alert(saleItemsError.message);
+      return;
+    }
+    if (items.length === 0) {
+      alert('No items found for this sale to cancel.');
+      return;
     }
 
-    // Restore stock (reverse FIFO)
+    // Restore stock by creating new batches for each item
     for (const item of items) {
-      let remaining = item.quantity
-
-      const { data: batches } = await supabase
+      // Create a new stock_batches entry for the restored item
+      const { data: newBatch, error: newBatchError } = await supabase
         .from('stock_batches')
-        .select('*')
-        .eq('product_id', item.product_id)
-        .order('received_at', { ascending: false })
+        .insert({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          remaining_quantity: item.quantity,
+          cost_price: item.cost_price, // Use the average cost from the sale_item
+          received_at: new Date(), // Date of restoration
+          company_id: user.company_id,
+        })
+        .select()
+        .single();
 
-      for (const batch of batches) {
-        if (remaining <= 0) break
+      if (newBatchError) {
+        console.error('Error creating new batch for cancelled sale:', newBatchError.message);
+        throw newBatchError; // Propagate error
+      }
 
-        const toAdd = Math.min(remaining, item.quantity)
+      // Log stock movement for restoration (pointing to the new batch)
+      const { error: movementError } = await supabase.from('stock_movements').insert({
+        product_id: item.product_id,
+        batch_id: newBatch.id, // Reference the newly created batch
+        quantity: item.quantity,
+        movement_type: 'IN', // Stock is coming back IN
+        reason: 'Cancelled Sale', // Add the reason
+        reference_id: sale.id, // Reference the cancelled sale
+        company_id: user.company_id,
+      });
 
-        await supabase
-          .from('stock_batches')
-          .update({
-            remaining_quantity: batch.remaining_quantity + toAdd
-          })
-          .eq('id', batch.id)
-
-        remaining -= toAdd
+      if (movementError) {
+        console.error('Error logging stock movement for cancelled sale:', movementError.message);
+        // Decide on error handling: alert, log, or throw
       }
     }
 
@@ -102,12 +147,12 @@ export default function Sales() {
   }
 
   // Helper function to check if sale is within 24 hours
-  const isWithin24Hours = (createdAt) => {
+  const isWithinOneWeek = (createdAt) => {
     const now = new Date();
     const saleDate = new Date(createdAt);
     const diffInMilliseconds = now - saleDate;
     const diffInHours = diffInMilliseconds / (1000 * 60 * 60);
-    return diffInHours < 24;
+    return diffInHours < 168;
   };
 
   // Apply filters to the sales data
@@ -178,22 +223,22 @@ export default function Sales() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-8">
-      <h1 className="text-2xl font-bold text-center">Sales</h1>
+      {/* <h1 className="text-2xl font-bold text-center">Sales</h1> */}
 
-      {!open && (
+      {!isSaleFormOpen && (
         <div className="flex justify-center">
           <button
-            onClick={() => setOpen(true)}
-            className="px-3 py-1 bg-blue-600 text-white rounded-lg"
+            onClick={openSaleForm}
+            className="px-3 py-1 bg-blue-600 text-white rounded-lg mt-5"
           >
             Record Sale
           </button>
         </div>
       )}
 
-      {open && (
+      {isSaleFormOpen && (
         <SaleForm
-          onClose={() => setOpen(false)}
+          onClose={closeSaleForm} // Use closeSaleForm from context
           onSaved={fetchSales}
         />
       )}
@@ -305,7 +350,7 @@ export default function Sales() {
             ) : (
               paginatedSales.map(sale => {
                 const isCancelled = !!sale.cancelled_at;
-                const canCancel = !isCancelled && isWithin24Hours(sale.created_at);
+                const canCancel = !isCancelled && isWithinOneWeek(sale.created_at);
 
                 return (
                   <tr
@@ -368,10 +413,11 @@ export default function Sales() {
                           onClick={() => cancelSale(sale)}
                           className={`mr-2 hover:underline ${!canCancel ? 'text-gray-400 cursor-not-allowed' : 'text-red-600'}`}
                         >
-                          Cancel
+                          [Cancel/Return]
                         </button>
                       )}
                       {/* View Receipt Button */}
+                      {/*
                       <button
                         onClick={() => handleViewReceipt(sale)}
                         className={`hover:underline ${
@@ -383,6 +429,7 @@ export default function Sales() {
                       >
                         Receipt
                       </button>
+                      */}
                     </td>
                   </tr>
                 )
@@ -391,48 +438,50 @@ export default function Sales() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col items-center mt-4">
-        <div className="mb-2">
-          Page {page} of {totalPages}
-        </div>
-
-        <div className="flex items-center space-x-2">
-            <button
-              className="px-3 py-1 border rounded text-sm disabled:opacity-50"
-              disabled={page === 1 || filteredSales.length === 0} // Disable if no sales or on first page
-              onClick={() => setPage(p => p - 1)}
-            >
-              Prev
-            </button>
-
-            {/* Jump to Page Input */}
-            <div className="flex items-center space-x-1 text-sm">
-              <label htmlFor="jump-to-page-sales">Go to page:</label>
-              <input
-                id="jump-to-page-sales"
-                type="number"
-                min="1"
-                max={totalPages}
-                value={page}
-                onChange={e => {
-                  let pageNum = parseInt(e.target.value, 10);
-                  if (isNaN(pageNum) || pageNum < 1) pageNum = 1;
-                  if (pageNum > totalPages) pageNum = totalPages;
-                  setPage(pageNum);
-                }}
-                className="w-16 border rounded p-1 text-center"
-              />
-            </div>
-
-            <button
-              className="px-3 py-1 border rounded text-sm disabled:opacity-50"
-              disabled={page === totalPages || filteredSales.length === 0} // Disable if no sales or on last page
-              onClick={() => setPage(p => p + 1)}
-            >
-              Next
-            </button>
+      {totalPages > 1 && (
+        <div className="flex flex-col items-center mt-4">
+          <div className="mb-2">
+            Page {page} of {totalPages}
           </div>
-      </div>
+
+          <div className="flex items-center space-x-2">
+              <button
+                className="px-3 py-1 border rounded text-sm disabled:opacity-50"
+                disabled={page === 1 || filteredSales.length === 0} // Disable if no sales or on first page
+                onClick={() => setPage(p => p - 1)}
+              >
+                Prev
+              </button>
+
+              {/* Jump to Page Input */}
+              <div className="flex items-center space-x-1 text-sm">
+                <label htmlFor="jump-to-page-sales">Go to page:</label>
+                <input
+                  id="jump-to-page-sales"
+                  type="number"
+                  min="1"
+                  max={totalPages}
+                  value={page}
+                  onChange={e => {
+                    let pageNum = parseInt(e.target.value, 10);
+                    if (isNaN(pageNum) || pageNum < 1) pageNum = 1;
+                    if (pageNum > totalPages) pageNum = totalPages;
+                    setPage(pageNum);
+                  }}
+                  className="w-16 border rounded p-1 text-center"
+                />
+              </div>
+
+              <button
+                className="px-3 py-1 border rounded text-sm disabled:opacity-50"
+                disabled={page === totalPages || filteredSales.length === 0} // Disable if no sales or on last page
+                onClick={() => setPage(p => p + 1)}
+              >
+                Next
+              </button>
+            </div>
+        </div>
+      )}
 
       {/* Render Receipt Modal */}
       <ReceiptModal

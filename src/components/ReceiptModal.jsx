@@ -36,15 +36,16 @@ const generateReceiptHTML = (sale, customerName, cashierName) => {
         <body>
             <div class="receipt-container">
                 <div class="receipt-header">
-                    <h1>Valecor</h1>
-                    <p class="small-text"> </p>
+                    <h1>Valecor Agri Trading</h1>
+                    <p class="small-text">OLD SAN ROQUE (POB.) 4418, PILI, CAMARINES SUR</p>
+                    <p class="small-text">NON-VAT Reg. TIN: 414-981-374-00000</p>
                 </div>
                 
                 <div class="receipt-details">
-                    <div><span>Receipt ID:</span> <span class="bold">${sale.display_id}</span></div>
-                    <div><span>Date:</span> <span class="bold">${new Date(sale.created_at).toLocaleString()}</span></div>
-                    <div><span>Customer:</span> <span class="bold">${customerName || 'N/A'}</span></div>
-                    <div><span>Cashier:</span> <span class="bold">${cashierName || 'N/A'}</span></div>
+                    <div><span>Delivery Receipt:</span> <span class="bold">${sale.display_id}</span></div>
+                    <div><span>Date:</span> <span class="bold">${new Date(sale.created_at).toLocaleDateString()}</span></div>
+                    <div><span>Delivered to:</span> <span class="bold">${customerName || 'N/A'}</span></div>
+                    <div><span>Address :</span> <span class="bold">${cashierName || 'N/A'}</span></div>
                 </div>
 
                 <div class="receipt-items">
@@ -71,7 +72,15 @@ const generateReceiptHTML = (sale, customerName, cashierName) => {
                 </div>
 
                 <div class="receipt-footer">
+                    <div><span>Subtotal:</span> <span class="bold text-right">${formatPrice(sale.total_amount)}</span></div>
+                    <div><span>Tax (0%):</span> <span class="bold text-right">${formatPrice(0)}</span></div>
+                    <div><span>Discount:</span> <span class="bold text-right">${formatPrice(0)}</span></div>
                     <div><span>Total Amount:</span> <span class="bold text-right">${formatPrice(sale.total_amount)}</span></div>
+                </div>
+
+                <div class="receipt-footer" style="margin-top: 10px;">
+                    <div><span>Amount Paid:</span> <span class="bold text-right">${formatPrice(sale.total_amount)}</span></div>
+                    <div><span>Change Due:</span> <span class="bold text-right">${formatPrice(0)}</span></div>
                 </div>
                 
                 <div class="receipt-footer" style="text-align: center; margin-top: 30px;">
@@ -138,13 +147,14 @@ const ReceiptModal = ({ open, onClose, saleData }) => {
             >
                 <div className="receipt-modal-content p-4">
                     <div className="text-center mb-4 pb-3 border-b border-dashed border-gray-400">
-                        <h1 className="text-2xl font-bold text-gray-800 mb-1">Valecor</h1>
-                        <p className="text-xs text-gray-600"></p>
+                        <h1 className="text-2xl font-bold text-gray-800 mb-1">Valecor Agri Trading</h1>
+                        <p className="text-xs text-gray-600">OLD SAN ROQUE (POB.) 4418, PILI, CAMARINES SUR</p>
+                        <p className="text-xs text-gray-600">NON-VAT Reg. TIN: 414-981-374-00000</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <Form.Item
-                            label="Customer Name"
+                            label="Delivered to: "
                             name="customerName"
                             rules={[{ required: true, message: 'Please enter customer name!' }]}
                         >
@@ -153,19 +163,19 @@ const ReceiptModal = ({ open, onClose, saleData }) => {
                             />
                         </Form.Item>
                         <Form.Item
-                            label="Cashier Name"
+                            label="Address: "
                             name="cashierName"
-                            rules={[{ required: true, message: 'Please enter cashier name!' }]}
+                            rules={[{ message: 'Enter address' }]}
                         >
                             <Input
-                                placeholder="Enter Cashier Name"
+                                placeholder="Enter Address"
                             />
                         </Form.Item>
                     </div>
 
                     <div className="mb-4 pb-3 border-b border-dashed border-gray-400">
                         <div className="flex justify-between text-sm mb-1">
-                            <span className="text-gray-600">Receipt ID:</span>
+                            <span className="text-gray-600">Delivery Receipt:</span>
                             <span className="font-medium text-gray-800">{saleData.display_id}</span>
                         </div>
                         <div className="flex justify-between text-sm mb-1">
@@ -198,9 +208,32 @@ const ReceiptModal = ({ open, onClose, saleData }) => {
                     </div>
 
                     <div className="pb-3 border-b border-dashed border-gray-400">
-                        <div className="flex justify-between font-bold text-lg">
+                        <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-600">Subtotal:</span>
+                            <span className="font-medium text-gray-800">{formatPrice(saleData.total_amount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-600">Tax (0%):</span>
+                            <span className="font-medium text-gray-800">{formatPrice(0)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-600">Discount:</span>
+                            <span className="font-medium text-gray-800">{formatPrice(0)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-lg mb-1">
                             <span>Total Amount:</span>
                             <span className="text-gray-800">{formatPrice(saleData.total_amount)}</span>
+                        </div>
+                    </div>
+
+                    <div className="pb-3 border-b border-dashed border-gray-400">
+                        <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-600">Amount Paid:</span>
+                            <span className="font-medium text-gray-800">{formatPrice(saleData.total_amount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-600">Change Due:</span>
+                            <span className="font-medium text-gray-800">{formatPrice(0)}</span>
                         </div>
                     </div>
                     

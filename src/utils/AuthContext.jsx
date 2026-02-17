@@ -17,11 +17,11 @@ export const AuthProvider = ({ children }) => {
         if (session) {
           const { data: profile, error } = await supabase
             .from('profiles')
-            .select('role')
+            .select('role, company_id')
             .eq('id', session.user.id)
             .single();
           if (error) throw error;
-          setUser({ ...session.user, role: profile.role });
+          setUser({ ...session.user, role: profile.role, company_id: profile.company_id });
         } else {
           setUser(null);
         }
@@ -40,17 +40,22 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (event === 'SIGNED_IN' && session) {
-          supabase.from('profiles').select('role').eq('id', session.user.id).single()
+          supabase.from('profiles').select('role, company_id').eq('id', session.user.id).single()
             .then(({ data: profile, error }) => {
               if (error) {
                 console.error("Error fetching profile on SIGNED_IN:", error);
                 setUser(session.user); // Set user even if profile fetch fails
               } else {
-                setUser({ ...session.user, role: profile.role });
+                setUser({ ...session.user, role: profile.role, company_id: profile.company_id });
               }
             });
         } else if (event === 'SIGNED_OUT') {
+          setLoading(true); // Indicate that auth state is changing/being re-evaluated
           setUser(null);
+          const timer = setTimeout(() => {
+            setLoading(false);
+          }, 100); // Small delay, e.g., 100ms
+          return () => clearTimeout(timer); // Cleanup timeout
         }
       }
     );

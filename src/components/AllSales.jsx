@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getSaleItems } from '../services/products';
+import { getNetSaleItems } from '../services/products';
 import { formatPrice } from '../utils/formatPrice';
 
 export default function AllSales() {
@@ -19,7 +19,7 @@ export default function AllSales() {
   async function fetchSaleItems() {
     setLoading(true);
     try {
-      const items = await getSaleItems();
+      const items = await getNetSaleItems(); // Use getNetSaleItems()
       setSaleItems(items);
     } catch (error) {
       console.error('Error fetching sale items:', error);
@@ -89,7 +89,7 @@ export default function AllSales() {
     <div className="bg-white p-6 rounded-lg shadow">
 
      <div className="flex justify-between items-center mb-3">
-      <h2 className="text-lg font-semibold mb-3">Stock Out History</h2>
+      <h2 className="text-lg font-semibold mb-3">Sales Hitory (Stock Out)</h2>
 
       {/* Filter Toggle Button */}
         <button
@@ -192,7 +192,7 @@ export default function AllSales() {
             </table>
           </div>
           {!loading && filteredSaleItems.length > 0 && totalPages > 1 && (
-            <div className="flex flex-col md:flex-row justify-between items-center mt-4 space-y-2 md:space-y-0">
+            <div className="flex flex-col md:flex-row justify-center items-center mt-4 space-y-2 md:space-y-0">
               <div className="text-sm text-gray-700">
                 Page {currentPage} of {totalPages}
               </div>

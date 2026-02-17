@@ -9,7 +9,7 @@ import ProductMetrics from '../components/ProductMetrics'
 import LowStockItems from '../components/LowStockItems'
 import DailySalesCalendar from '../components/DailySalesCalendar';
 import DailySalesProfitChart from '../components/DailySalesProfitChart'; // New Import
-import { getSaleItems, getStockInItems } from '../services/products'; // New Import
+import { getGrossSaleItems, getStockInItems } from '../services/products'; // DEBUG: Use getGrossSaleItems
 import { getAllSchedules } from '../services/schedule'; // New Import
 import { useAuth } from '../utils/AuthContext';
 
@@ -23,7 +23,7 @@ export default function Dashboard() {
   const fetchAndAggregateDailyData = useCallback(async () => {
     setLoadingDailyData(true);
     try {
-      const allSaleItems = await getSaleItems();
+      const allSaleItems = await getGrossSaleItems(); // DEBUG: Use getGrossSaleItems
       const allStockInItems = await getStockInItems();
       const allSchedules = await getAllSchedules();
 
@@ -87,42 +87,45 @@ export default function Dashboard() {
   }
   
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto ">
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
-      {/* Pass dailyData to SalesSummary */}
-      <SalesSummary dailyData={dailyData} loading={loadingDailyData} />
+      <div className="my-6">
+        <LowStockItems />
+      </div>
 
-      {/* DailySalesProfitChart */}
+      {/* Pass dailyData to SalesSummary */}
+      {/* <SalesSummary dailyData={dailyData} loading={loadingDailyData} /> */}
+
+      {/* Pass dailyData to DailySalesCalendar */}
+      <DailySalesCalendar dailyData={dailyData} loading={loadingDailyData} fetchDailySalesData={fetchAndAggregateDailyData} />
+
+            {/* DailySalesProfitChart */}
       <DailySalesProfitChart
         dailyData={dailyData}
         loading={loadingDailyData}
         chartPeriod={chartPeriod}
         setChartPeriod={setChartPeriod}
       />
-      {/* Pass dailyData to DailySalesCalendar */}
-      <DailySalesCalendar dailyData={dailyData} loading={loadingDailyData} fetchDailySalesData={fetchAndAggregateDailyData} />
+
+      <div className="my-6">
+        <ProductMetrics />
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 my-6">
         <FastMovingItems />
         <HighProfitItems />
       </div>
 
-      <div className="my-6">
-        <ProductMetrics />
-      </div>
-
-      <div className="my-6">
-        <LowStockItems />
-      </div>
-
+{/* 
       <div className="mt-6">
       <StockInHistory />
       </div>
 
       <div className="mt-6">
         <AllSales />
-      </div>
+      </div> */}
+
     </div>
   )
 }

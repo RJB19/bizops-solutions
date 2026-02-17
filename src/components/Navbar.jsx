@@ -97,9 +97,9 @@ export default function Navbar() {
             {/* --- Logo Added Here --- */}
             <div className="flex items-center">
               <img
-                src="/valecor_log.png" // Path to the image in the public directory
-                alt="Valecor Logo"
-                className="block h-16 w-auto sm:h-20" // Increased size
+                src="/bizops.png" // Path to the image in the public directory
+                alt="BizOps Logo"
+                className="block h-12 w-auto sm:h-16" // Increased size
               />
             </div>
           </div>
@@ -111,6 +111,9 @@ export default function Navbar() {
               {dashboardLink(false)}
               <NavLink to="/products" className={desktopLinkClass}>
                 Products
+              </NavLink>
+              <NavLink to="/inventory" className={desktopLinkClass}>
+                Inventory
               </NavLink>
               <NavLink to="/sales" className={desktopLinkClass}>
                 Sales
@@ -140,6 +143,7 @@ export default function Navbar() {
         <div className="px-2 pt-2 pb-3 space-y-1">
           {dashboardLink(true)}
           <NavLink to="/products" className={mobileLinkClass} onClick={() => setIsOpen(false)}>Products</NavLink>
+          <NavLink to="/inventory" className={mobileLinkClass} onClick={() => setIsOpen(false)}>Inventory</NavLink>
           <NavLink to="/sales" className={mobileLinkClass} onClick={() => setIsOpen(false)}>Sales</NavLink>
         </div>
         {/* User info and Logout (Mobile) */}

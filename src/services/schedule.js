@@ -1,9 +1,19 @@
 import { supabase } from './supabase';
 
 export async function createSchedule(schedule) {
+  const { data: company_id, error: companyIdError } = await supabase.rpc('current_user_company_id');
+
+  if (companyIdError) {
+    console.error("Error fetching company_id for RLS in createSchedule:", companyIdError);
+    throw companyIdError;
+  }
+  if (!company_id) {
+    throw new Error("current_user_company_id returned null. User might not be authenticated or profile not set.");
+  }
+
   const { data, error } = await supabase
     .from('schedules')
-    .insert(schedule)
+    .insert({ ...schedule, company_id })
     .select()
     .single();
 

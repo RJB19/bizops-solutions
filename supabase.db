@@ -1,3 +1,19 @@
+
+create table public.product_price_history (
+  id uuid not null default gen_random_uuid (),
+  product_id uuid null,
+  old_price numeric null,
+  new_price numeric null,
+  changed_at timestamp with time zone null default now(),
+  old_unit text null,
+  new_unit text null,
+  old_threshold integer null,
+  new_threshold integer null,
+  constraint product_price_history_pkey primary key (id),
+  constraint product_price_history_product_id_fkey foreign KEY (product_id) references products (id) on delete CASCADE
+) TABLESPACE pg_default;
+
+
 create table public.products (
   id uuid not null default gen_random_uuid (),
   name text not null,
@@ -7,59 +23,101 @@ create table public.products (
   selling_price numeric(12, 2) not null,
   low_stock_threshold integer null default 10,
   created_at timestamp with time zone null default now(),
+  archived_at timestamp with time zone null,
   constraint products_pkey primary key (id),
   constraint products_sku_key unique (sku)
 ) TABLESPACE pg_default;
 
-create table public.sale_items (
-  id uuid not null default gen_random_uuid (),
-  sale_id uuid null,
-  product_id uuid null,
-  quantity integer not null,
-  selling_price numeric(12, 2) not null,
-  constraint sale_items_pkey primary key (id),
-  constraint sale_items_product_id_fkey foreign KEY (product_id) references products (id),
-  constraint sale_items_sale_id_fkey foreign KEY (sale_id) references sales (id) on delete CASCADE
+
+create table public.profiles (
+  id uuid not null,
+  role text not null default 'user'::text,
+  constraint profiles_pkey primary key (id),
+  constraint profiles_id_fkey foreign KEY (id) references auth.users (id)
 ) TABLESPACE pg_default;
+
 
 create table public.sale_items (
   id uuid not null default gen_random_uuid (),
   sale_id uuid null,
   product_id uuid null,
-  quantity integer not null,
+  quantity numeric not null,
   selling_price numeric(12, 2) not null,
+  cost_price numeric(12, 2) not null default 0,
   constraint sale_items_pkey primary key (id),
   constraint sale_items_product_id_fkey foreign KEY (product_id) references products (id),
   constraint sale_items_sale_id_fkey foreign KEY (sale_id) references sales (id) on delete CASCADE
 ) TABLESPACE pg_default;
 
-create table public.sale_items (
+
+create table public.sales (
   id uuid not null default gen_random_uuid (),
-  sale_id uuid null,
-  product_id uuid null,
-  quantity integer not null,
-  selling_price numeric(12, 2) not null,
-  constraint sale_items_pkey primary key (id),
-  constraint sale_items_product_id_fkey foreign KEY (product_id) references products (id),
-  constraint sale_items_sale_id_fkey foreign KEY (sale_id) references sales (id) on delete CASCADE
+  sold_by uuid null,
+  total_amount numeric(12, 2) not null,
+  created_at timestamp with time zone null default now(),
+  cancelled_at timestamp without time zone null,
+  display_id text null,
+  constraint sales_pkey primary key (id),
+  constraint sales_sold_by_fkey foreign KEY (sold_by) references auth.users (id)
 ) TABLESPACE pg_default;
 
-create table public.sale_items (
+create trigger set_sale_display_id BEFORE INSERT on sales for EACH row
+execute FUNCTION generate_sale_display_id ();
+
+
+create table public.schedules (
+  id uuid not null default extensions.uuid_generate_v4 (),
+  date date not null,
+  title text not null,
+  description text null,
+  created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+  constraint schedules_pkey primary key (id)
+) TABLESPACE pg_default;
+
+
+create table public.stock_batches (
   id uuid not null default gen_random_uuid (),
-  sale_id uuid null,
-  product_id uuid null,
-  quantity integer not null,
-  selling_price numeric(12, 2) not null,
-  constraint sale_items_pkey primary key (id),
-  constraint sale_items_product_id_fkey foreign KEY (product_id) references products (id),
-  constraint sale_items_sale_id_fkey foreign KEY (sale_id) references sales (id) on delete CASCADE
+  product_id uuid not null,
+  quantity numeric not null,
+  remaining_quantity numeric not null,
+  cost_price numeric(12, 2) not null,
+  received_at timestamp with time zone not null default now(),
+  constraint stock_batches_pkey primary key (id),
+  constraint stock_batches_product_id_fkey foreign KEY (product_id) references products (id) on delete CASCADE
 ) TABLESPACE pg_default;
 
-create view product_stock as
+create index IF not exists idx_stock_batches_fifo on public.stock_batches using btree (product_id, received_at, id) TABLESPACE pg_default;
+
+create trigger trg_stock_batches_set_remaining_quantity BEFORE INSERT on stock_batches for EACH row
+execute FUNCTION stock_batches_set_remaining_quantity ();
+
+
+create table public.stock_movements (
+  id uuid not null default gen_random_uuid (),
+  product_id uuid null,
+  batch_id uuid null,
+  quantity integer not null,
+  movement_type text null,
+  reference_id uuid null,
+  created_at timestamp with time zone null default now(),
+  constraint stock_movements_pkey primary key (id),
+  constraint stock_movements_batch_id_fkey foreign KEY (batch_id) references stock_batches (id),
+  constraint stock_movements_product_id_fkey foreign KEY (product_id) references products (id),
+  constraint stock_movements_movement_type_check check (
+    (
+      movement_type = any (array['IN'::text, 'OUT'::text])
+    )
+  )
+) TABLESPACE pg_default;
+
+
+create view public.product_stock as
 select
   p.id,
   p.name,
-  coalesce(sum(sb.remaining_quantity), 0) as current_stock
-from products p
-left join stock_batches sb on sb.product_id = p.id
-group by p.id;
+  COALESCE(sum(sb.remaining_quantity), 0::numeric) as current_stock
+from
+  products p
+  left join stock_batches sb on sb.product_id = p.id
+group by
+  p.id;

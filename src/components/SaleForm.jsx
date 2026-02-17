@@ -2,11 +2,109 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../services/supabase'
 import { formatPrice } from '../utils/formatPrice'
 import { calculateFifo } from '../utils/fifo'
+import { useAuth } from '../utils/AuthContext';
+import { useSalesCart } from '../utils/SalesCartContext';
+import { getUniqueCategories } from '../services/products'; // Import getUniqueCategories
 
-export default function SaleForm({ onClose, onSaved }) {
+function AdjustPriceModal({ item, onClose, onAdjust }) {
+  const [newPrice, setNewPrice] = useState(item.selling_price); // Use selling_price from item
+  const [discount, setDiscount] = useState('0');
+
+  useEffect(() => {
+    // Initialize newPrice and discount when item changes
+    setNewPrice(item.selling_price);
+    if (item.original_selling_price > 0) {
+      const discountPercent = ((item.original_selling_price - item.selling_price) / item.original_selling_price) * 100;
+      setDiscount(discountPercent.toFixed(2));
+    } else {
+      setDiscount('0');
+    }
+  }, [item]);
+
+
+  const handlePriceChange = (e) => {
+    setNewPrice(e.target.value);
+  };
+
+  const handleDiscountChange = (e) => {
+    setDiscount(e.target.value);
+  };
+
+  const handlePriceBlur = () => {
+    const price = parseFloat(newPrice);
+    if (!isNaN(price) && item.original_selling_price > 0) {
+      const discountPercent = ((item.original_selling_price - price) / item.original_selling_price) * 100;
+      setDiscount(discountPercent.toFixed(2));
+    }
+  };
+
+  const handleDiscountBlur = () => {
+    const discountPercent = parseFloat(discount);
+    if (!isNaN(discountPercent)) {
+      const discountedPrice = item.original_selling_price * (1 - discountPercent / 100);
+      setNewPrice(discountedPrice.toFixed(2));
+    }
+  };
+
+  const handleApply = () => {
+    onAdjust(item.product.id, parseFloat(newPrice)); // Pass product.id and newPrice
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg shadow-xl space-y-4 w-full max-w-md">
+        <h2 className="text-xl font-bold">Adjust Price for {item.product.name}</h2>
+        
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">Original Price: {formatPrice(item.original_selling_price)}</label>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">New Selling Price</label>
+            <input
+              type="number"
+              value={newPrice}
+              onChange={handlePriceChange}
+              onBlur={handlePriceBlur}
+              className="w-full border p-2 rounded"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Discount (%)</label>
+            <input
+              type="number"
+              value={discount}
+              onChange={handleDiscountChange}
+              onBlur={handleDiscountBlur}
+              className="w-full border p-2 rounded"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 border rounded">
+            Cancel
+          </button>
+          <button
+            onClick={handleApply}
+            className="px-4 py-2 bg-blue-600 text-white rounded"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+export default function SaleForm({ onSaved }) {
+  const { user } = useAuth();
+  const { cartItems, addItemToCart, updateItemQuantity, removeItemFromCart, clearCart, closeSaleForm, updateItemPrice } = useSalesCart();
   const [products, setProducts] = useState([])
   const [productId, setProductId] = useState('') // Renamed from selectedProductId
-  const [cart, setCart] = useState([])
   const [quantity, setQuantity] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -14,15 +112,34 @@ export default function SaleForm({ onClose, onSaved }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [displaySearchTerm, setDisplaySearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [adjustPriceModal, setAdjustPriceModal] = useState({ open: false, item: null });
+
+  // New states for category filtering
+  const [selectedCategory, setSelectedCategory] = useState(''); // Empty string means 'All Categories'
+  const [uniqueCategories, setUniqueCategories] = useState([]);
+
 
   useEffect(() => {
     fetchProducts()
   }, [])
 
+  // Fetch unique categories on mount
+  useEffect(() => {
+    async function fetchUniqueCategories() {
+      try {
+        const categories = await getUniqueCategories();
+        setUniqueCategories(categories);
+      } catch (error) {
+        console.error('Error fetching unique categories for filter:', error);
+      }
+    }
+    fetchUniqueCategories();
+  }, []);
+
   async function fetchProducts() {
     const { data: productsData } = await supabase
       .from('products')
-      .select('id, name, selling_price, sku, archived_at') // Added archived_at
+      .select('id, name, selling_price, sku, archived_at, category') // Added category
       .is('archived_at', null) // Filter out archived products
 
     const { data: stockData } = await supabase
@@ -45,8 +162,9 @@ export default function SaleForm({ onClose, onSaved }) {
   // Combobox helper functions
   const filteredProducts = products
     .filter(p =>
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+      (selectedCategory === '' || (p.category && p.category.trim().toLowerCase() === selectedCategory)) && // Category filter
+      (p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.sku || '').toLowerCase().includes(searchTerm.toLowerCase()))
     )
     .sort((a, b) => a.name.localeCompare(b.name)); // Explicit sort after filtering
 
@@ -77,65 +195,75 @@ export default function SaleForm({ onClose, onSaved }) {
   };
 
 
-  function addToCart() {
+
+  const handleCategoryChange = (e) => {
+    const newCategory = e.target.value;
+    setSelectedCategory(newCategory);
+    // Reset product selection when category changes
+    setProductId('');
+    setDisplaySearchTerm('');
+    setSearchTerm('');
+    setShowDropdown(false);
+  };
+
+
+  function handleAddToCart() {
     const qty = Number(quantity)
     if (!qty || qty <= 0) {
       alert('Quantity must be greater than 0')
       return
     }
 
-    const product = products.find(p => p.id === productId) // Use productId
+    const product = products.find(p => p.id === productId)
     if (!product) return
 
-    const existing = cart.find(i => i.id === product.id)
+    const existingItemInCart = cartItems.find(item => item.product.id === product.id);
 
-    if (existing?.cancelled) {
-      alert('This item was cancelled and cannot be re-added.')
-      return
+    if (existingItemInCart?.cancelled) {
+        alert('This item was cancelled and cannot be re-added.');
+        return;
     }
 
-    const alreadyInCart = existing ? existing.quantity : 0
+    const alreadyInCartQty = existingItemInCart ? existingItemInCart.quantity : 0;
 
-    if (alreadyInCart + qty > product.stock) {
-      alert(`Only ${product.stock} items available in stock`)
-      return
+    if (alreadyInCartQty + qty > product.stock) {
+      alert(`Only ${product.stock} items available in stock for ${product.name}`);
+      return;
     }
 
-    setCart(prev => {
-      if (existing) {
-        return prev.map(i =>
-          i.id === product.id
-            ? { ...i, quantity: i.quantity + qty }
-            : i
-        )
-      }
-
-      return [
-        ...prev,
-        {
-          id: product.id,
-          name: product.name,
-          price: product.selling_price,
-          quantity: qty,
-          sku: product.sku
-        }
-      ]
-    })
-
-    setQuantity('')
-    setSelectedProductId('')
+    addItemToCart(product, qty, product.selling_price);
+    setQuantity('');
+    setProductId('');
+    setDisplaySearchTerm('');
   }
 
-  const total = cart
+  const total = cartItems
     .filter(i => !i.cancelled)
-    .reduce((sum, i) => sum + i.quantity * i.price, 0)
+    .reduce((sum, i) => sum + i.quantity * i.selling_price, 0)
+  
+  const handleOpenAdjustPrice = (item) => {
+    setAdjustPriceModal({ open: true, item });
+  }
 
+  const handleAdjustPrice = (productIdToAdjust, newPrice) => {
+    // Find the item in the cartItems and update its selling_price
+    const itemToUpdate = cartItems.find(item => item.product.id === productIdToAdjust);
+    if (itemToUpdate) {
+      // Update the item in the cart using the context's updateItemPrice function
+      updateItemPrice(productIdToAdjust, newPrice);
+    }
+  };
+  
   async function confirmSale() {
-    const activeItems = cart.filter(i => !i.cancelled)
+    const activeItems = cartItems.filter(i => !i.cancelled)
 
     if (activeItems.length === 0) {
       alert('Add at least one item to cart')
       return
+    }
+
+    if (!window.confirm('Are you sure you want to save this sale?')) {
+      return; // If user cancels, stop the function
     }
 
     setLoading(true)
@@ -146,7 +274,13 @@ export default function SaleForm({ onClose, onSaved }) {
         const { data: stockData } = await supabase
           .from('stock_batches')
           .select('remaining_quantity')
-          .eq('product_id', item.id)
+          .eq('product_id', item.product.id)
+          .eq('company_id', user.company_id) // Add company_id filter
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return { data };
+          });
+
 
         const totalStock = stockData.reduce(
           (sum, b) => sum + b.remaining_quantity,
@@ -154,7 +288,7 @@ export default function SaleForm({ onClose, onSaved }) {
         )
 
         if (item.quantity > totalStock) {
-          alert(`Not enough stock for ${item.name}`)
+          alert(`Not enough stock for ${item.product.name}`)
           setLoading(false)
           return
         }
@@ -163,7 +297,7 @@ export default function SaleForm({ onClose, onSaved }) {
       // Create sale
       const { data: sale, error } = await supabase
         .from('sales')
-        .insert({ total_amount: total })
+        .insert({ total_amount: total, company_id: user.company_id })
         .select()
         .single()
 
@@ -174,34 +308,67 @@ export default function SaleForm({ onClose, onSaved }) {
         const { data: batches } = await supabase
           .from('stock_batches')
           .select('*')
-          .eq('product_id', item.id)
+          .eq('product_id', item.product.id)
+          .eq('company_id', user.company_id) // Add company_id filter
           .gt('remaining_quantity', 0)
           .order('received_at', { ascending: true })
 
         const { costOfGoodsSold, updatedBatches } = calculateFifo(
           batches,
           item.quantity
-        )
+        );
 
         await supabase.from('sale_items').insert({
           sale_id: sale.id,
-          product_id: item.id,
+          product_id: item.product.id,
           quantity: item.quantity,
-          selling_price: item.price,
-          cost_price: costOfGoodsSold
-        })
+          selling_price: item.selling_price,
+          cost_price: costOfGoodsSold / item.quantity, // Store the average cost per item
+        });
 
-        for (const batch of updatedBatches) {
-          await supabase
+        // Identify which batches were used and if it was a multi-batch transaction
+        const usedBatches = updatedBatches.filter(b => b.original_quantity > b.remaining_quantity);
+        const isMultiBatch = usedBatches.length > 1;
+        let batchCounter = 0;
+
+        for (const batch of usedBatches) {
+          batchCounter++;
+          const deductedAmount = batch.original_quantity - batch.remaining_quantity;
+
+          const { error: updateError } = await supabase
             .from('stock_batches')
             .update({ remaining_quantity: batch.remaining_quantity })
             .eq('id', batch.id)
+            .eq('company_id', user.company_id);
+
+          if (updateError) throw updateError;
+
+          // Create a note if it's a multi-batch sale
+          const movementNote = isMultiBatch 
+            ? `Part ${batchCounter} of ${usedBatches.length} from multi-batch sale.` 
+            : null;
+
+          // Log stock movement for this deduction
+          const { error: movementError } = await supabase.from('stock_movements').insert({
+            product_id: item.product.id,
+            batch_id: batch.id,
+            quantity: deductedAmount,
+            movement_type: 'OUT',
+            reason: 'Sale',
+            notes: movementNote, // Add the note here
+            reference_id: sale.id,
+            company_id: user.company_id,
+          });
+
+          if (movementError) {
+            console.error('Error logging stock movement for sale:', movementError.message);
+          }
         }
       }
 
-      setCart([])
-      onSaved()
-      onClose()
+      clearCart(); // Clear the cart after successful sale
+      onSaved();
+      closeSaleForm(); // Close the form using context function
     } catch (err) {
       alert(err.message || 'Failed to save sale')
     } finally {
@@ -213,9 +380,21 @@ export default function SaleForm({ onClose, onSaved }) {
     <div className="bg-white p-6 rounded-lg shadow space-y-4">
       <h2 className="text-xl font-bold">Record Sale</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        {/* Category Filter Dropdown */}
+        <select
+          className="w-full border p-2 rounded"
+          value={selectedCategory}
+          onChange={handleCategoryChange}
+        >
+          <option value="">All Categories</option>
+          {uniqueCategories.map(category => (
+            <option key={category} value={category}>{category}</option>
+          ))}
+        </select>
+
         {/* Product Combobox */}
-        <div className="relative col-span-2 md:col-span-1">
+        <div className="relative col-span-1">
           <input
             type="text"
             placeholder="Search or Select Product"
@@ -280,8 +459,8 @@ export default function SaleForm({ onClose, onSaved }) {
 
         {/* Add Button (remains) */}
         <button
-          onClick={addToCart}
-          className="bg-blue-600 text-white rounded px-4"
+          onClick={handleAddToCart}
+          className="bg-blue-600 text-white rounded px-4 py-2"
           disabled={!productId || !quantity || loading}
         >
           Add
@@ -298,22 +477,22 @@ export default function SaleForm({ onClose, onSaved }) {
       )}
 
       <div>
-        {cart.length === 0 ? (
+        {cartItems.length === 0 ? (
           <p className="text-gray-500">No items added</p>
         ) : (
-          cart.map(item => {
+          cartItems.map(item => {
             const isCancelled = item.cancelled
 
             return (
               <div
-                key={item.id}
+                key={item.product.id} // Use item.product.id as key
                 className={`flex justify-between items-center border-b py-2 ${
                   isCancelled ? 'opacity-50' : ''
                 }`}
               >
                 <div className={`${isCancelled ? 'line-through' : ''}`}>
                   <div className="font-medium">
-                    {item.name}
+                    {item.product.name}
                     {isCancelled && (
                       <span className="ml-2 text-xs text-red-600 font-semibold">
                         (Cancelled)
@@ -321,41 +500,45 @@ export default function SaleForm({ onClose, onSaved }) {
                     )}
                   </div>
                   <div className="text-sm text-gray-600">
-                    {item.quantity} × {formatPrice(item.price)}
+                  {item.quantity} × {formatPrice(item.selling_price)}
+                    {item.selling_price !== item.original_selling_price && (
+                      <span className="ml-2 text-xs text-blue-600">
+                        (Original: {formatPrice(item.original_selling_price)})
+                      </span>
+                    )}
                   </div>
                 </div>
+
+                <div className="flex items-center gap-4">
 
                 {isCancelled ? (
                   <button
                     onClick={() =>
-                      setCart(prev =>
-                        prev.map(i =>
-                          i.id === item.id
-                            ? { ...i, cancelled: false }
-                            : i
-                        )
-                      )
+                      updateItemQuantity(item.product.id, item.quantity) // Re-add item with same quantity
                     }
                     className="text-blue-600 hover:underline text-sm"
                   >
                     Undo
                   </button>
                 ) : (
+                  <>
+                  <button
+                    onClick={() => handleOpenAdjustPrice(item)}
+                    className="text-blue-600 hover:underline text-sm"
+                  >
+                    Adjust Price (discount or mark up)
+                  </button>
                   <button
                     onClick={() =>
-                      setCart(prev =>
-                        prev.map(i =>
-                          i.id === item.id
-                            ? { ...i, cancelled: true }
-                            : i
-                        )
-                      )
+                      removeItemFromCart(item.product.id) // Remove item from cart
                     }
                     className="text-red-600 hover:underline text-sm"
                   >
-                    Cancel
+                    Remove
                   </button>
+                  </>
                 )}
+                </div>
               </div>
             )
           })
@@ -367,7 +550,7 @@ export default function SaleForm({ onClose, onSaved }) {
       </div>
 
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} className="px-4 py-2 border rounded">
+        <button onClick={closeSaleForm} className="px-4 py-2 border rounded">
           Close
         </button>
 
@@ -379,6 +562,13 @@ export default function SaleForm({ onClose, onSaved }) {
           {loading ? 'Saving Sale...' : 'Save Sale'}
         </button>
       </div>
+      {adjustPriceModal.open && (
+        <AdjustPriceModal
+          item={adjustPriceModal.item}
+          onClose={() => setAdjustPriceModal({ open: false, item: null })}
+          onAdjust={handleAdjustPrice}
+        />
+      )}
     </div>
   )
 }

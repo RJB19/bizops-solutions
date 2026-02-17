@@ -35,10 +35,19 @@ export default function Login() {
   };
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gray-100">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
-        <h2 className="text-2xl font-bold text-center">Login</h2>
-        <form className="space-y-6" onSubmit={handleLogin}>
+    <div className="flex items-center justify-center h-screen bg-blue-200">
+      <div className="w-full max-w-md p-6 space-y-2 bg-blue-100 rounded-lg shadow-md ">
+    
+        <form className="space-y-6 bg-blue-100 rounded-lg p-4" onSubmit={handleLogin}>
+
+                      <div className="flex items-center justify-center mb-1">
+              <img
+                src="/bizops.png" // Path to the image in the public directory
+                alt="BizOps Logo"
+                className="block h-30 w-auto sm:h-36 rounded-lg p-2" // Increased size
+              />
+            </div>
+                  <h2 className="text-2xl font-bold text-center">Login</h2>
           <div>
             <label
               htmlFor="email"
@@ -82,6 +91,14 @@ export default function Login() {
             </button>
           </div>
         </form>
+        {/* <div className="text-center">
+          <p className="text-sm">
+            Don't have an account?{' '}
+            <a href="/signup" className="font-medium text-blue-600 hover:text-blue-500">
+              Sign up
+            </a>
+          </p>
+        </div> */}
       </div>
     </div>
   );
