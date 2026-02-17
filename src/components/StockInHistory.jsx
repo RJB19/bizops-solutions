@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../services/supabase'
 import { formatPrice } from '../utils/formatPrice'
+import { useAuth } from '../utils/AuthContext'; // Import useAuth
 
 export default function StockInHistory() {
+  const { user } = useAuth(); // Get user from context
   const [batches, setBatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
@@ -16,44 +18,75 @@ export default function StockInHistory() {
   // State for filter visibility
   const [isFilterVisible, setIsFilterVisible] = useState(false); // Initially hidden
 
-  async function fetchBatches() {
+  const fetchBatches = useCallback(async () => {
     setLoading(true);
+    console.log('StockInHistory: fetching batches for company_id:', user?.company_id);
+
     try {
-      const { data } = await supabase
-        .from('stock_batches')
+      const { data: movements, error } = await supabase
+        .from('stock_movements')
         .select(
           `
-          id,
-          quantity,
-          cost_price,
-          received_at,
-          products ( name, sku )
+          batch_id,
+          stock_batches (
+            id,
+            quantity,
+            cost_price,
+            received_at,
+            products ( name, sku )
+          )
         `
         )
-        .order('received_at', { ascending: false });
+        .eq('company_id', user?.company_id)
+        .eq('movement_type', 'IN')
+        .eq('reason', 'Stock In')
+        .order('received_at', { foreignTable: 'stock_batches', ascending: false });
 
-      setBatches(data || []);
+      if (error) {
+        console.error('StockInHistory: Error fetching stock movements:', error.message);
+        setLoading(false); // Ensure loading is turned off even on error
+        return;
+      }
+      console.log('StockInHistory: Raw movements data:', movements);
+
+      // Extract only the batch data from the movements
+      const uniqueBatches = movements
+        .filter(movement => movement.stock_batches !== null) // Ensure batch data exists
+        .map(movement => movement.stock_batches)
+        .sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+      
+      console.log('StockInHistory: Unique batches after processing:', uniqueBatches);
+      setBatches(uniqueBatches || []);
     } catch (error) {
-      console.error('Error fetching stock batches:', error.message);
+      console.error('StockInHistory: Error fetching stock batches (catch block):', error.message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [user?.company_id, setBatches, setLoading, supabase]);
 
   useEffect(() => {
-    fetchBatches();
+    // Only fetch batches if user and company_id are available
+    if (user?.company_id) {
+      fetchBatches();
+    } else {
+      setLoading(false); // If no company_id, stop loading and show no data
+      setBatches([]);
+    }
 
     const subscription = supabase
       .channel('stock_in_history')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_batches' }, payload => {
-        fetchBatches();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_movements' }, payload => {
+        // Refetch only if the change is relevant to our filtered view
+        if (payload.new?.movement_type === 'IN' && payload.new?.reason === 'Stock In' && payload.new?.company_id === user?.company_id) {
+          fetchBatches();
+        }
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, []);
+  }, [fetchBatches, user ? user.company_id : undefined, supabase]);
 
   // Apply filters to the batches data
   const filteredBatches = batches.filter(batch => {
@@ -112,7 +145,7 @@ export default function StockInHistory() {
     <div className="bg-white shadow rounded p-4">
       {/* Header and Filter Toggle Button */}
       <div className="flex justify-between items-center mb-3">
-        <h2 className="text-lg font-semibold">Stock In History</h2>
+        <h2 className="text-lg font-semibold">Purchase History (Stock In)</h2>
         <button
           onClick={() => setIsFilterVisible(!isFilterVisible)}
           className="px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
@@ -213,23 +246,13 @@ export default function StockInHistory() {
                 </tr>
               ))}
             </tbody>
-            {filteredBatches.length > 0 && (
-              <tfoot className="bg-gray-100 font-bold">
-                <tr>
-                  <td colSpan="4" className="p-2 border text-right">Total Stock In Cost:</td>
-                  <td className="p-2 border text-right">{formatPrice(
-                    filteredBatches.reduce((sum, batch) => sum + (batch.quantity * batch.cost_price), 0)
-                  )}</td>
-                  <td className="p-2 border"></td> {/* Empty cell for Date column */}
-                </tr>
-              </tfoot>
-            )}
+
           </table>
         </div>
       )}
       
       {!loading && filteredBatches.length > 0 && totalPages > 1 && (
-        <div className="flex flex-col md:flex-row justify-between items-center mt-4 space-y-2 md:space-y-0">
+        <div className="flex flex-col md:flex-row justify-center items-center mt-4 space-y-2 md:space-y-0">
           <div className="text-sm text-gray-700">
             Page {currentPage} of {totalPages}
           </div>

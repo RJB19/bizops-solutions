@@ -1,25 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { getSaleItems, getStockInItems } from '../services/products'; // Import both functions
+import { getNetSaleItems, getStockInItems } from '../services/products'; // Use getNetSaleItems
 import { formatPrice } from '../utils/formatPrice';
 
 export default function DailyStockModal({ selectedDate, onClose }) {
   const [stockInDetails, setStockInDetails] = useState([]);
   const [saleDetails, setSaleDetails] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalStockInCost, setTotalStockInCost] = useState(0); // New state
-  const [totalSalesAmount, setTotalSalesAmount] = useState(0); // New state
-  const [totalGrossProfit, setTotalGrossProfit] = useState(0); // New state
-
-
+  const [totalStockInCost, setTotalStockInCost] = useState(0);
+  const [totalSalesAmount, setTotalSalesAmount] = useState(0);
+  const [totalGrossProfit, setTotalGrossProfit] = useState(0);
 
   useEffect(() => {
     async function fetchDetails() {
       setLoading(true);
+      console.log('DailyStockModal: Fetching details for', selectedDate); // Log start of fetch
       try {
-        const allSaleItems = await getSaleItems();
+        const allSaleItems = await getNetSaleItems();
         const allStockInItems = await getStockInItems();
 
+        console.log('DailyStockModal: allSaleItems fetched', allSaleItems); // Log fetched sale items
+        console.log('DailyStockModal: allStockInItems fetched', allStockInItems); // Log fetched stock-in items
+
+
         const selectedDateStr = `${selectedDate.getFullYear()}-${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}-${selectedDate.getDate().toString().padStart(2, '0')}`;
+        console.log('DailyStockModal: selectedDateStr', selectedDateStr); // Log formatted date string
 
         // Filter sales for the selected date
         const filteredSales = allSaleItems.filter((item) => {
@@ -32,8 +36,9 @@ export default function DailyStockModal({ selectedDate, onClose }) {
             .getDate()
             .toString()
             .padStart(2, '0')}`;
-          return itemDateStr === selectedDateStr;
+            return itemDateStr === selectedDateStr;
         });
+        console.log('DailyStockModal: filteredSales', filteredSales); // Log filtered sales
 
         const aggregatedSales = filteredSales.reduce((acc, item) => {
           let product = acc.find((p) => p.product_name === item.product_name);
@@ -52,14 +57,18 @@ export default function DailyStockModal({ selectedDate, onClose }) {
           }
           return acc;
         }, []);
+        console.log('DailyStockModal: aggregatedSales', aggregatedSales); // Log aggregated sales
 
         setSaleDetails(aggregatedSales);
         setTotalSalesAmount(
           filteredSales.reduce((sum, item) => sum + item.amount, 0)
-        ); // Calculate total sales
+        );
         setTotalGrossProfit(
           filteredSales.reduce((sum, item) => sum + item.gross_profit, 0)
-        ); // Calculate total gross profit
+        );
+        console.log('DailyStockModal: totalSalesAmount', totalSalesAmount); // Log total sales amount
+        console.log('DailyStockModal: totalGrossProfit', totalGrossProfit); // Log total gross profit
+
 
         // Filter stock-in for the selected date
         const filteredStockIn = allStockInItems.filter((item) => {
@@ -74,6 +83,7 @@ export default function DailyStockModal({ selectedDate, onClose }) {
             .padStart(2, '0')}`;
           return itemDateStr === selectedDateStr;
         });
+        console.log('DailyStockModal: filteredStockIn', filteredStockIn); // Log filtered stock-in
 
         const aggregatedStockIn = filteredStockIn.reduce((acc, item) => {
           let product = acc.find((p) => p.product_name === item.product_name);
@@ -85,21 +95,25 @@ export default function DailyStockModal({ selectedDate, onClose }) {
               product_name: item.product_name,
               sku: item.sku,
               quantity: item.quantity,
+              item_cost: item.item_cost, // Ensure item_cost is available if needed
               total_cost: item.total_cost,
             });
           }
           return acc;
         }, []);
+        console.log('DailyStockModal: aggregatedStockIn', aggregatedStockIn); // Log aggregated stock-in
 
-        setStockInDetails(aggregatedStockIn); // Use filteredStockIn directly
-        // Calculate total stock-in cost from *original* filtered items
+        setStockInDetails(aggregatedStockIn);
         setTotalStockInCost(
           filteredStockIn.reduce((sum, item) => sum + item.total_cost, 0)
         );
+        console.log('DailyStockModal: totalStockInCost', totalStockInCost); // Log total stock-in cost
+
       } catch (error) {
-        console.error('Error fetching daily stock details:', error.message);
+        console.error('DailyStockModal: Error fetching daily stock details:', error.message); // Log actual error
       } finally {
         setLoading(false);
+        console.log('DailyStockModal: Finished fetching, loading set to false'); // Log end of fetch
       }
     }
 
@@ -136,7 +150,7 @@ export default function DailyStockModal({ selectedDate, onClose }) {
             {/* Stock In Section */}
             <div>
               <h4 className="text-xl font-semibold mb-2 text-black-700">
-                Stock In
+                Purchase (Stock In)
               </h4>
               {stockInDetails.length === 0 ? (
                 <p>No stock-in recorded for this day.</p>
@@ -178,7 +192,7 @@ export default function DailyStockModal({ selectedDate, onClose }) {
                             colSpan="3"
                             className="p-2 border text-right"
                           >
-                            Today's Total Cost:
+                            Today's Total Purchase Price:
                           </td>{' '}
                           <td className="p-2 border text-right">
                             {formatPrice(totalStockInCost)}

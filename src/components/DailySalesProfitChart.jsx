@@ -38,12 +38,12 @@ const aggregateChartData = (data, period) => {
     return dateA - dateB;
   });
 
-  return sortedKeys.map(key => {
+  const finalChartData = sortedKeys.map(key => {
     const item = aggregated[key];
     let name;
     switch (period) {
       case 'daily':
-        name = new Date(key).getDate();
+        name = new Date(key).toLocaleDateString();
         break;
       case 'monthly':
         name = new Date(parseInt(key.split('-')[0]), parseInt(key.split('-')[1]), 1).toLocaleString('en-US', { month: 'short' });
@@ -59,7 +59,9 @@ const aggregateChartData = (data, period) => {
       sales: item.sales,
       profit: item.profit,
     };
-  });
+  }).filter(item => item.sales > 0 || item.profit > 0); // Filter out entries with no sales/profit
+
+  return finalChartData;
 };
 
 
