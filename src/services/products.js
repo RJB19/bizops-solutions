@@ -377,7 +377,7 @@ export async function getNetSaleItems() {
     .select(`
       id, created_at,
       sale_items (
-        id, product_id, quantity, selling_price, cost_price,
+        id, product_id, quantity, selling_price, cost_price, original_product_price,
         products ( name, sku )
       )
     `)
@@ -400,6 +400,7 @@ export async function getNetSaleItems() {
       sku: item.products.sku,
       quantity: item.quantity,
       selling_price: item.selling_price,
+      original_selling_price: item.original_product_price, // Add this line
       cost_price: item.cost_price, // This is now per-item average cost from DB
       amount: item.quantity * item.selling_price,
       gross_profit: (item.quantity * item.selling_price) - (item.quantity * item.cost_price),

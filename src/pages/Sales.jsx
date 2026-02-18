@@ -60,6 +60,7 @@ export default function Sales() {
         product_id: item.product_id,
         quantity: item.quantity,
         selling_price: item.selling_price,
+        original_selling_price: item.original_selling_price, // Add this line
         products: { name: item.product_name, sku: item.sku }
       });
       sale.total_amount += item.amount; // Sum the net amount for the sale
@@ -246,7 +247,7 @@ export default function Sales() {
       {/* Filter Section */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="flex justify-between items-center mb-3">
-            <h3 className="text-lg font-semibold">Filter Sales</h3>
+            <h3 className="text-lg font-semibold">Sales Record</h3>
             <button
               onClick={() => setIsFilterVisible(!isFilterVisible)}
               className="px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
@@ -320,7 +321,7 @@ export default function Sales() {
               </div>
             </div>
         )}
-      </div>
+     
 
       <div className="bg-white rounded-lg shadow overflow-x-auto">
         <table className="w-full text-sm border-collapse">
@@ -384,8 +385,20 @@ export default function Sales() {
                               SKU: {item.products.sku || '-'}
                             </div>
                             <div className="text-xs">
-                              {item.quantity} × ₱
-                              {item.selling_price.toFixed(2)}
+                              {item.quantity} × {formatPrice(item.selling_price)}
+                              {item.original_selling_price && item.selling_price !== item.original_selling_price && (
+                                <span className="ml-2 text-blue-600 font-semibold">
+                                  {(() => {
+                                    const diff = item.selling_price - item.original_selling_price;
+                                    const percentage = (Math.abs(diff) / item.original_selling_price) * 100;
+                                    if (diff < 0) {
+                                      return `(Discounted ${percentage.toFixed(0)}%)`;
+                                    } else {
+                                      return `(Mark Up by ${percentage.toFixed(0)}%)`;
+                                    }
+                                  })()}
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -482,6 +495,7 @@ export default function Sales() {
             </div>
         </div>
       )}
+       </div>
 
       {/* Render Receipt Modal */}
       <ReceiptModal

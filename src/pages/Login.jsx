@@ -91,14 +91,14 @@ export default function Login() {
             </button>
           </div>
         </form>
-        {/* <div className="text-center">
+        <div className="text-center">
           <p className="text-sm">
             Don't have an account?{' '}
             <a href="/signup" className="font-medium text-blue-600 hover:text-blue-500">
               Sign up
             </a>
           </p>
-        </div> */}
+        </div>
       </div>
     </div>
   );
