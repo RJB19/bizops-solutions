@@ -25,3 +25,9 @@ dist-ssr
 
 # Environment variables
 .env
+
+
+
+# supabase.db
+.supabase.db
+

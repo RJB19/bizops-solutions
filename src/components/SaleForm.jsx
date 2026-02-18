@@ -323,6 +323,7 @@ export default function SaleForm({ onSaved }) {
           product_id: item.product.id,
           quantity: item.quantity,
           selling_price: item.selling_price,
+          original_product_price: item.original_selling_price, // Add this line
           cost_price: costOfGoodsSold / item.quantity, // Store the average cost per item
         });
 

@@ -182,7 +182,22 @@ export default function AllSales() {
                     <td className="p-3 border">{item.product_name}</td>
                     <td className="p-3 border">{item.sku}</td>
                     <td className="p-3 border text-right">{item.quantity}</td>
-                    <td className="p-3 border text-right">{formatPrice(item.selling_price)}</td>
+                    <td className="p-3 border text-right">
+                      {formatPrice(item.selling_price)}
+                      {item.original_selling_price && item.selling_price !== item.original_selling_price && (
+                        <span className="ml-2 text-blue-600 font-semibold">
+                          {(() => {
+                            const diff = item.selling_price - item.original_selling_price;
+                            const percentage = (Math.abs(diff) / item.original_selling_price) * 100;
+                            if (diff < 0) {
+                              return `(Discounted ${percentage.toFixed(0)}%)`;
+                            } else {
+                              return `(Mark Up by ${percentage.toFixed(0)}%)`;
+                            }
+                          })()}
+                        </span>
+                      )}
+                    </td>
                     <td className="p-3 border text-right">{formatPrice(item.amount)}</td>
                     <td className="p-3 border text-right">{formatPrice(item.gross_profit)}</td>
                     <td className="p-3 border">{new Date(item.date).toLocaleString()}</td>
